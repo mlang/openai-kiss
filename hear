@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+confdir="${XDG_CONFIG_HOME:-${HOME}/.config}/openai-kiss"
+cachedir="${XDG_CACHE_HOME:-${HOME}/.cache}/openai-kiss"
+. "${confdir}/$(basename "${0}").conf"
+
+file="${1}"
+text=
+
+if [ -z "${file}" ]
+then file="$(mktemp --suffix=.mp3 --tmpdir="${cachedir}" hear-XXXXXXXXXX)"
+     text="${file%.*}.txt"
+     record_mp3 "${file}"
+fi
+curl --silent                                       \
+     --form "file=@${file}"                         \
+     --form model=whisper-1                         \
+     --form response_format=text                    \
+     --header "@${confdir}/authorization.header"    \
+     https://api.openai.com/v1/audio/transcriptions |
+tee "${text}"

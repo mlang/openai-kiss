@@ -1,0 +1,45 @@
+#!/bin/sh
+set -e
+
+confdir="${XDG_CONFIG_HOME:-${HOME}/.config}/openai-kiss"
+cachedir="${XDG_CACHE_HOME:-${HOME}/.cache}/openai-kiss"
+session="$(basename "${0}")"
+template="${confdir}/${session}.json"
+cache="${cachedir}/${session}${TMUX_PANE}.json"
+case "$1" in
+  --new) [ -r "${cache}" ] && rm "${cache}"
+         shift
+         ;;
+esac
+[ -r "${cache}" ] && template="${cache}"
+
+api () {
+  local endpoint="${1}"
+  shift
+  local request="${1}"
+  shift
+  local response="$(mktemp)"
+
+  curl --silent --data-binary "@${request}" --output "${response}" \
+       --header "Content-Type: application/json" \
+       --header "@${confdir}/authorization.header" \
+       https://api.openai.com/${endpoint} "${@}"
+  echo "${response}"
+}
+
+req="$(mktemp)"
+trap "rm ${req}" EXIT
+jq --rawfile message /dev/stdin \
+   '.messages += [{"role": "user", "content": $message}]' "${template}" > "${req}"
+
+resp="$(api v1/chat/completions "${req}")"
+trap "rm ${resp}" EXIT
+if jq --exit-status 'has("error")' "${resp}" >/dev/null
+then echo -n "ERROR: "
+     jq -r '.error.message' "${resp}" >&2
+     exit 1
+fi
+jq -r '.choices[0].message.content' "${resp}" | tee /dev/tty | tmux load-buffer -
+jq '.choices[0].message' "${resp}" |
+jq --slurpfile answer /dev/stdin '.messages += $answer' "${req}" > "${cache}"
+
